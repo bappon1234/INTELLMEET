@@ -1,6 +1,12 @@
 import { useState, useEffect } from 'react';
-import { getMeetingsApi, createMeetingApi, joinMeetingApi } from '@/lib/meetingApi';
 import { useNavigate } from 'react-router-dom';
+import { getMeetingsApi, createMeetingApi, joinMeetingApi } from '@/lib/meetingApi';
+import {
+  getMyTeamMeetingsApi,
+  joinTeamMeetingApi,
+  getMyPendingInvitesApi,
+  acceptInviteApi,
+} from '@/lib/teamApi';
 import { useAuth } from '@/contexts/AuthContext';
 import { useToast } from '@/hooks/use-toast';
 import { Button } from '@/components/ui/button';
@@ -16,7 +22,7 @@ import {
   LayoutDashboard,
   Copy,
   Check,
-  Zap
+  Zap,
 } from 'lucide-react';
 
 interface BackendUser {
@@ -36,6 +42,38 @@ interface BackendMeeting {
   hostId?: BackendUser | string;
 }
 
+interface TeamInfo {
+  _id: string;
+  name: string;
+}
+
+interface TeamMeeting {
+  _id: string;
+  title: string;
+  date: string;
+  meetingId: string;
+  status?: 'scheduled' | 'instant' | 'completed';
+  participants?: BackendUser[] | string[];
+  hostId?: BackendUser | string;
+  teamId?: TeamInfo | string;
+}
+
+interface PendingInvite {
+  _id: string;
+  token: string;
+  status: 'pending' | 'accepted' | 'rejected';
+  team: {
+    _id: string;
+    name: string;
+  };
+  invitedBy?: {
+    _id: string;
+    name: string;
+    email: string;
+  };
+  createdAt: string;
+}
+
 export default function DashboardPage() {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
@@ -44,8 +82,16 @@ export default function DashboardPage() {
   const [meetingLink, setMeetingLink] = useState('');
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false);
+
   const [meetings, setMeetings] = useState<BackendMeeting[]>([]);
+  const [teamMeetings, setTeamMeetings] = useState<TeamMeeting[]>([]);
+  const [pendingInvites, setPendingInvites] = useState<PendingInvite[]>([]);
+
   const [loadingMeetings, setLoadingMeetings] = useState(true);
+  const [loadingTeamMeetings, setLoadingTeamMeetings] = useState(true);
+  const [loadingInvites, setLoadingInvites] = useState(true);
+  const [joiningInviteId, setJoiningInviteId] = useState<string | null>(null);
+  const [joiningTeamMeetingId, setJoiningTeamMeetingId] = useState<string | null>(null);
 
   const fetchMeetings = async () => {
     try {
@@ -67,8 +113,34 @@ export default function DashboardPage() {
     }
   };
 
+  const fetchTeamMeetings = async () => {
+    try {
+      setLoadingTeamMeetings(true);
+      const data = await getMyTeamMeetingsApi();
+      setTeamMeetings(Array.isArray(data) ? data : []);
+    } catch (error: any) {
+      console.error('fetchTeamMeetings error:', error);
+    } finally {
+      setLoadingTeamMeetings(false);
+    }
+  };
+
+  const fetchPendingInvites = async () => {
+    try {
+      setLoadingInvites(true);
+      const data = await getMyPendingInvitesApi();
+      setPendingInvites(Array.isArray(data) ? data : []);
+    } catch (error: any) {
+      console.error('fetchPendingInvites error:', error);
+    } finally {
+      setLoadingInvites(false);
+    }
+  };
+
   useEffect(() => {
     fetchMeetings();
+    fetchTeamMeetings();
+    fetchPendingInvites();
   }, []);
 
   const now = new Date();
@@ -142,14 +214,66 @@ export default function DashboardPage() {
     }
   };
 
+  const handleAcceptInvite = async (inviteId: string) => {
+    try {
+      setJoiningInviteId(inviteId);
+
+      await acceptInviteApi(inviteId);
+
+      toast({
+        title: 'Team Joined',
+        description: 'You joined the team successfully',
+        variant: 'success',
+      });
+
+      await fetchPendingInvites();
+      await fetchTeamMeetings();
+    } catch (error: any) {
+      toast({
+        title: 'Join failed',
+        description: error?.response?.data?.error || 'Could not join team',
+        variant: 'destructive',
+      });
+    } finally {
+      setJoiningInviteId(null);
+    }
+  };
+
   const handleJoinMeeting = async (e: React.FormEvent) => {
     e.preventDefault();
 
     if (!meetingLink.trim()) return;
 
     try {
-      const id = meetingLink.split('/').pop() || meetingLink;
-      const meeting = await joinMeetingApi(id.trim());
+      const input = meetingLink.trim();
+
+      if (input.includes('/join/')) {
+        const token = input.split('/join/').pop();
+        if (token) {
+          navigate(`/join/${token}`);
+          setMeetingLink('');
+          return;
+        }
+      }
+
+      if (input.includes('/meeting/')) {
+        const meetingId = input.split('/meeting/').pop();
+        if (meetingId) {
+          const meeting = await joinMeetingApi(meetingId.trim());
+
+          toast({
+            title: 'Meeting Joined!',
+            description: `${meeting.title || 'Meeting'} opened successfully`,
+            variant: 'success',
+          });
+
+          navigate(`/meeting/${meeting.meetingId}`);
+          setMeetingLink('');
+          return;
+        }
+      }
+
+      const meeting = await joinMeetingApi(input);
 
       toast({
         title: 'Meeting Joined!',
@@ -167,9 +291,53 @@ export default function DashboardPage() {
           error?.response?.data?.msg ||
           error?.response?.data?.message ||
           error?.response?.data?.error ||
-          'Meeting not found',
+          'Invalid meeting link or meeting not found',
         variant: 'destructive',
       });
+    }
+  };
+
+  const handleJoinUpcomingMeeting = async (meetingId: string) => {
+    try {
+      const meeting = await joinMeetingApi(meetingId);
+
+      toast({
+        title: 'Meeting Joined!',
+        description: `${meeting.title || 'Meeting'} opened successfully`,
+        variant: 'success',
+      });
+
+      navigate(`/meeting/${meeting.meetingId}`);
+    } catch (error: any) {
+      toast({
+        title: 'Join failed',
+        description: error?.response?.data?.error || 'Could not join meeting',
+        variant: 'destructive',
+      });
+    }
+  };
+
+  const handleJoinTeamMeeting = async (meetingId: string) => {
+    try {
+      setJoiningTeamMeetingId(meetingId);
+
+      const meeting = await joinTeamMeetingApi(meetingId);
+
+      toast({
+        title: 'Meeting Joined!',
+        description: `${meeting.title || 'Team meeting'} opened successfully`,
+        variant: 'success',
+      });
+
+      navigate(`/meeting/${meeting.meetingId}`);
+    } catch (error: any) {
+      toast({
+        title: 'Join Failed',
+        description: error?.response?.data?.error || 'Could not join team meeting',
+        variant: 'destructive',
+      });
+    } finally {
+      setJoiningTeamMeetingId(null);
     }
   };
 
@@ -189,6 +357,12 @@ export default function DashboardPage() {
   const getParticipantCount = (participants?: BackendUser[] | string[]) => {
     if (!participants) return 0;
     return participants.length;
+  };
+
+  const getTeamName = (teamId?: TeamInfo | string) => {
+    if (!teamId) return 'Team Meeting';
+    if (typeof teamId === 'string') return 'Team Meeting';
+    return teamId.name || 'Team Meeting';
   };
 
   return (
@@ -243,6 +417,44 @@ export default function DashboardPage() {
 
       <main className="container mx-auto px-4 py-8">
         <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
+          {pendingInvites.length > 0 && (
+            <Card className="md:col-span-2 lg:col-span-3 border-primary/20">
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Users className="h-5 w-5" />
+                  Team Invitations
+                </CardTitle>
+                <CardDescription>
+                  Teams that invited you. Click join to access team meetings.
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-4">
+                  {pendingInvites.map((invite) => (
+                    <div
+                      key={invite._id}
+                      className="flex items-center justify-between p-4 border rounded-lg"
+                    >
+                      <div>
+                        <h3 className="font-semibold">{invite.team?.name}</h3>
+                        <p className="text-sm text-muted-foreground">
+                          Invited by: {invite.invitedBy?.name || invite.invitedBy?.email}
+                        </p>
+                      </div>
+
+                      <Button
+                        onClick={() => handleAcceptInvite(invite._id)}
+                        disabled={joiningInviteId === invite._id}
+                      >
+                        {joiningInviteId === invite._id ? 'Joining...' : 'Join Team'}
+                      </Button>
+                    </div>
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
           <Card className="md:col-span-2 lg:col-span-3">
             <CardHeader>
               <CardTitle className="flex items-center space-x-2">
@@ -296,7 +508,7 @@ export default function DashboardPage() {
 
                 <form onSubmit={handleJoinMeeting} className="flex flex-col gap-2">
                   <Input
-                    placeholder="Enter meeting link or ID"
+                    placeholder="Paste meeting link, meeting ID, or team invite link"
                     value={meetingLink}
                     onChange={(e) => setMeetingLink(e.target.value)}
                     className="flex-1 h-full text-base"
@@ -371,8 +583,8 @@ export default function DashboardPage() {
                           )}
                         </Button>
 
-                        <Button onClick={() => navigate(`/meeting/${meeting.meetingId}`)}>
-                          Join Now
+                        <Button onClick={() => handleJoinUpcomingMeeting(meeting.meetingId)}>
+                          Join
                         </Button>
                       </div>
                     </div>
@@ -452,25 +664,58 @@ export default function DashboardPage() {
             </CardContent>
           </Card>
 
-          <Card>
+          <Card className="md:col-span-2 lg:col-span-3">
             <CardHeader>
-              <CardTitle>Account</CardTitle>
+              <CardTitle className="flex items-center gap-2">
+                <Users className="h-5 w-5" />
+                Team Meetings
+              </CardTitle>
+              <CardDescription>
+                Meetings from teams where you are a member
+              </CardDescription>
             </CardHeader>
             <CardContent>
-              <div className="space-y-2 text-sm text-muted-foreground">
-                <p>Logged in as: {user?.email}</p>
-                <p>Name: {user?.name}</p>
-                <Button
-                  variant="outline"
-                  className="w-full mt-3"
-                  onClick={() => navigate('/teams')}
-                >
-                  <Users className="h-4 w-4 mr-2" />
-                  Go to Teams Page
-                </Button>
-              </div>
+              {loadingTeamMeetings ? (
+                <div className="text-sm text-muted-foreground">Loading team meetings...</div>
+              ) : teamMeetings.length === 0 ? (
+                <div className="text-sm text-muted-foreground">No team meetings available</div>
+              ) : (
+                <div className="space-y-4">
+                  {teamMeetings.map((meeting) => (
+                    <div
+                      key={meeting._id}
+                      className="flex items-center justify-between p-4 border rounded-lg"
+                    >
+                      <div>
+                        <h3 className="font-semibold">{meeting.title}</h3>
+                        <p className="text-sm text-muted-foreground">
+                          {new Date(meeting.date).toLocaleString()}
+                        </p>
+                        <p className="text-xs text-muted-foreground mt-1">
+                          Team: {getTeamName(meeting.teamId)}
+                        </p>
+                        <p className="text-xs text-muted-foreground">
+                          Participants: {getParticipantCount(meeting.participants)}
+                        </p>
+                      </div>
+
+                      <Button
+                        onClick={() => handleJoinTeamMeeting(meeting.meetingId)}
+                        disabled={joiningTeamMeetingId === meeting.meetingId}
+                      >
+                        {joiningTeamMeetingId === meeting.meetingId ? 'Joining...' : 'Join Now'}
+                      </Button>
+                    </div>
+                  ))}
+                </div>
+              )}
             </CardContent>
           </Card>
+
+
+          {loadingInvites && pendingInvites.length === 0 && (
+            <div className="hidden">Loading invites...</div>
+          )}
         </div>
       </main>
     </div>
