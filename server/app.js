@@ -20,13 +20,23 @@ connectDB();
 
 const app = express();
 
+const allowedOrigins = [
+  "http://localhost:5173",
+  "https://intellmeet.netlify.app"
+];
+
 app.use(cors({
-  origin: [
-    "http://localhost:5173",
-    "https://intellmeet.netlify.app"
-  ],
+  origin: function (origin, callback) {
+    if (!origin || allowedOrigins.includes(origin)) {
+      callback(null, true);
+    } else {
+      callback(new Error("CORS not allowed"));
+    }
+  },
   credentials: true
 }));
+
+app.options("*", cors());
 
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
@@ -44,9 +54,10 @@ app.get("/", (req, res) => {
 
 const server = http.createServer(app);
 
+
 const io = new Server(server, {
   cors: {
-    origin: "http://localhost:5173",
+    origin: allowedOrigins,
     methods: ["GET", "POST"],
     credentials: true,
   },
@@ -61,7 +72,6 @@ io.on("connection", (socket) => {
     if (!userId) return;
     socket.join(userId);
     socket.data.userId = userId;
-    console.log(`User ${userId} joined personal room`);
   });
 
   socket.on("join-meeting", ({ meetingId, userId, name }) => {
@@ -74,13 +84,14 @@ io.on("connection", (socket) => {
 
     const users = meetingUsers.get(meetingId) || [];
 
-    const existingUsers = users.map((user) => ({
-      socketId: user.socketId,
-      userId: user.userId,
-      name: user.name,
-    }));
-
-    socket.emit("existing-users", existingUsers);
+    socket.emit(
+      "existing-users",
+      users.map((u) => ({
+        socketId: u.socketId,
+        userId: u.userId,
+        name: u.name,
+      }))
+    );
 
     const newUser = {
       socketId: socket.id,
@@ -91,36 +102,26 @@ io.on("connection", (socket) => {
     meetingUsers.set(meetingId, [...users, newUser]);
 
     socket.to(meetingId).emit("user-joined", newUser);
-
-    console.log(`${socket.id} joined meeting ${meetingId}`);
   });
 
   socket.on("offer", ({ meetingId, to, sdp }) => {
-    if (!to || !meetingId || !sdp) return;
-
+    if (!to) return;
     io.to(to).emit("offer", {
       from: socket.id,
       meetingId,
       sdp,
-      name: socket.data.name || "Guest",
-      userId: socket.data.userId || null,
+      name: socket.data.name,
+      userId: socket.data.userId,
     });
   });
 
   socket.on("answer", ({ meetingId, to, sdp }) => {
-    if (!to || !meetingId || !sdp) return;
-
-    io.to(to).emit("answer", {
-      from: socket.id,
-      meetingId,
-      sdp,
-    });
+    if (!to) return;
+    io.to(to).emit("answer", { from: socket.id, meetingId, sdp });
   });
 
-
   socket.on("ice-candidate", ({ meetingId, to, candidate }) => {
-    if (!to || !meetingId || !candidate) return;
-
+    if (!to) return;
     io.to(to).emit("ice-candidate", {
       from: socket.id,
       meetingId,
@@ -128,11 +129,9 @@ io.on("connection", (socket) => {
     });
   });
 
-
   socket.on("send-message", async (data) => {
     try {
       const { meetingId, sender, senderName, message } = data;
-
       if (!meetingId || !message) return;
 
       const newMessage = await Message.create({
@@ -142,19 +141,11 @@ io.on("connection", (socket) => {
         message,
       });
 
-      io.to(meetingId).emit("receive-message", {
-        _id: newMessage._id,
-        meetingId: newMessage.meetingId,
-        sender: newMessage.sender,
-        senderName: newMessage.senderName,
-        message: newMessage.message,
-        createdAt: newMessage.createdAt,
-      });
+      io.to(meetingId).emit("receive-message", newMessage);
     } catch (err) {
-      console.error("Error saving message:", err);
+      console.error("Message error:", err);
     }
   });
-
 
   socket.on("typing", ({ meetingId, userId, name }) => {
     socket.to(meetingId).emit("user-typing", {
@@ -162,7 +153,6 @@ io.on("connection", (socket) => {
       name: name || socket.data.name || "Guest",
     });
   });
-
 
   socket.on("media-state-changed", ({ meetingId, isVideoOn, isAudioOn }) => {
     socket.to(meetingId).emit("media-state-changed", {
@@ -172,56 +162,44 @@ io.on("connection", (socket) => {
     });
   });
 
-
-  socket.on("notify", (data) => {
-    const { userId } = data;
+  socket.on("notify", ({ userId, ...rest }) => {
     if (!userId) return;
-
-    io.to(userId).emit("notification", data);
+    io.to(userId).emit("notification", rest);
   });
-
 
   socket.on("leave-meeting", ({ meetingId }) => {
     const roomId = meetingId || socket.data.meetingId;
     if (!roomId) return;
 
     const users = meetingUsers.get(roomId) || [];
-    const updatedUsers = users.filter((user) => user.socketId !== socket.id);
+    const updated = users.filter((u) => u.socketId !== socket.id);
 
-    if (updatedUsers.length > 0) {
-      meetingUsers.set(roomId, updatedUsers);
-    } else {
-      meetingUsers.delete(roomId);
-    }
+    updated.length
+      ? meetingUsers.set(roomId, updated)
+      : meetingUsers.delete(roomId);
 
     socket.leave(roomId);
     socket.to(roomId).emit("user-left", socket.id);
-
-    console.log(`${socket.id} left meeting ${roomId}`);
   });
 
   socket.on("disconnect", () => {
     const roomId = socket.data.meetingId;
+    if (!roomId) return;
 
-    if (roomId) {
-      const users = meetingUsers.get(roomId) || [];
-      const updatedUsers = users.filter((user) => user.socketId !== socket.id);
+    const users = meetingUsers.get(roomId) || [];
+    const updated = users.filter((u) => u.socketId !== socket.id);
 
-      if (updatedUsers.length > 0) {
-        meetingUsers.set(roomId, updatedUsers);
-      } else {
-        meetingUsers.delete(roomId);
-      }
+    updated.length
+      ? meetingUsers.set(roomId, updated)
+      : meetingUsers.delete(roomId);
 
-      socket.to(roomId).emit("user-left", socket.id);
-    }
-
-    console.log("User disconnected:", socket.id);
+    socket.to(roomId).emit("user-left", socket.id);
+    console.log("Disconnected:", socket.id);
   });
 });
 
 const PORT = process.env.PORT || 5000;
 
 server.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
+  console.log(` Server running on port ${PORT}`);
 });
