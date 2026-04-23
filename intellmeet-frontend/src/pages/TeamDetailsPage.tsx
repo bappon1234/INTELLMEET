@@ -19,7 +19,6 @@ interface TeamUser {
   email: string;
   avatar?: string;
 }
-
 interface TeamMember {
   user: TeamUser;
   role: 'admin' | 'member';

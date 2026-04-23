@@ -1,7 +1,7 @@
 import { useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
-import { Video, Users, Brain, Globe, Target, Award } from 'lucide-react';
+import { Video, Brain, Globe, Target, Award } from 'lucide-react';
 
 export default function AboutPage() {
   const navigate = useNavigate();

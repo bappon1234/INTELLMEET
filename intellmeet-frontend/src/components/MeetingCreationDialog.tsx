@@ -4,12 +4,12 @@ import { useToast } from '@/hooks/use-toast';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import { Calendar, Clock, Video, Zap, Share2, Copy, Check } from 'lucide-react';
+import { Calendar, Clock, Video, Zap, Share2, Copy } from 'lucide-react';
 
 interface MeetingCreationDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onScheduleMeeting?: (title: string, scheduledAt: string) => string;
+  onScheduleMeeting?: (title: string, scheduledAt: string) => Promise<string>; // ✅ FIXED
   onStartNow?: (title?: string) => void;
 }
 
@@ -44,34 +44,33 @@ export default function MeetingCreationDialog({ open, onOpenChange, onScheduleMe
     setStep('options');
   };
 
-  const handleScheduleMeeting = () => {
-    if (!scheduledDate || !scheduledTime) {
-      toast({
-        title: "Missing Information",
-        description: "Please select both date and time",
-        variant: "destructive",
-      });
-      return;
-    }
+  const handleScheduleMeeting = async () => {
+  if (!scheduledDate || !scheduledTime) {
+    toast({
+      title: "Missing Information",
+      description: "Please select both date and time",
+      variant: "destructive",
+    });
+    return;
+  }
 
-    const scheduledDateTime = new Date(`${scheduledDate}T${scheduledTime}`).toISOString();
-    
-    if (onScheduleMeeting) {
-      const meetingId = onScheduleMeeting(meetingTitle, scheduledDateTime);
-      setCreatedMeetingId(meetingId);
-    } else {
-      const meetingId = Math.random().toString(36).substring(2, 8).toUpperCase();
-      setCreatedMeetingId(meetingId);
-      toast({
-        title: "Meeting Scheduled!",
-        description: `Meeting ID: ${meetingId} on ${new Date(scheduledDateTime).toLocaleString()}`,
-        variant: "success",
-      });
-    }
-    
-    // Move to share link step
-    setStep('share-link');
-  };
+  const scheduledDateTime = new Date(`${scheduledDate}T${scheduledTime}`).toISOString();
+  
+  if (onScheduleMeeting) {
+    const meetingId = await onScheduleMeeting(meetingTitle, scheduledDateTime);
+    setCreatedMeetingId(meetingId);
+  } else {
+    const meetingId = Math.random().toString(36).substring(2, 8).toUpperCase();
+    setCreatedMeetingId(meetingId);
+    toast({
+      title: "Meeting Scheduled!",
+      description: `Meeting ID: ${meetingId} on ${new Date(scheduledDateTime).toLocaleString()}`,
+      variant: "success",
+    });
+  }
+  
+  setStep('share-link');
+};
 
   const copyMeetingLink = () => {
     if (createdMeetingId) {

@@ -11,7 +11,7 @@ export default function TeamInvitePage() {
   const navigate = useNavigate();
   const location = useLocation();
   const { toast } = useToast();
-  const { user, loading: authLoading } = useAuth();
+  const { user, isLoading: authLoading } = useAuth();
 
   const [loading, setLoading] = useState(false);
   const [hasTriedJoin, setHasTriedJoin] = useState(false);

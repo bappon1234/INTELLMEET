@@ -13,7 +13,7 @@ import MeetingRoomPage from '@/pages/MeetingRoomPage';
 import ProfilePage from './pages/ProfilePage';
 import TeamMeetingRoomPage from '@/pages/TeamMeetingRoomPage';
 import TeamPage from './pages/TeamPage';
-import TeamDetailsPage from './pages/TeamDetailspage';
+import TeamDetailsPage from './pages/TeamDetailsPage';
 import TeamInvitePage from '@/pages/TeamInvitePage';
 
 function App() {
