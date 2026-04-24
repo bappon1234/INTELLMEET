@@ -22,16 +22,19 @@ const app = express();
 
 const allowedOrigins = [
   "http://localhost:5173",
-  "https://intellmeet.netlify.app"
+  "https://intellmeet.netlify.app",
+  "https://intellmeet.netlify.app/"
 ];
 
 app.use(cors({
-  origin: function (origin, callback) {
-    if (!origin || allowedOrigins.includes(origin)) {
-      callback(null, true);
-    } else {
-      callback(new Error("CORS not allowed"));
+  origin: (origin, callback) => {
+    if (!origin) return callback(null, true);
+
+    if (allowedOrigins.some(o => origin.startsWith(o))) {
+      return callback(null, true);
     }
+
+    return callback(null, false);
   },
   credentials: true
 }));
