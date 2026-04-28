@@ -2,7 +2,7 @@
 
 > Real-Time Video Meetings • AI Summaries • Smart Action Items • Team Collaboration
 
----
+---  
 
 ## 🌐 Live Demo
 
@@ -62,7 +62,9 @@ It enables teams to:
 
 ### 1️⃣ Clone Repo
 ```bash
-git clone https://github.com/your-username/intellmeet.git
+git clone https://github.com/bappon1234/INTELLMEET.git
+
+
 cd intellmeet
 
 ### Frontend setup
